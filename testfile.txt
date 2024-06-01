@@ -1,0 +1,30 @@
+import openai
+
+# Initialize the OpenAI API key
+openai.api_key = 'your_openai_api_key'
+
+def generate_summary(keywords):
+    prompt = f"Generate a summary for the following keywords: {', '.join(keywords)}"
+    response = openai.Completion.create(
+        engine="text-davinci-003",
+        prompt=prompt,
+        max_tokens=100
+    )
+    return response.choices[0].text.strip()
+
+# Extract KeyBERT results
+keybert_results = df_topics[['Topic', 'KeyBERT']].to_dict(orient='records')
+
+# Generate summaries
+summaries = []
+for result in keybert_results:
+    keywords = result['KeyBERT']
+    summary = generate_summary(keywords)
+    summaries.append({'Topic': result['Topic'], 'Summary': summary})
+
+# Add summaries to the DataFrame
+summary_df = pd.DataFrame(summaries)
+df_topics = df_topics.merge(summary_df, on='Topic')
+
+# Display the updated DataFrame
+df_topics[['Topic', 'Summary']]
