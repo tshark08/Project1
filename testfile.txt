@@ -1,4 +1,5 @@
 import openai
+import pandas as pd
 
 # Initialize the OpenAI API key
 openai.api_key = 'your_openai_api_key'
@@ -12,7 +13,21 @@ def generate_summary(keywords):
     )
     return response.choices[0].text.strip()
 
-# Extract KeyBERT results
+# Extract topic information
+df_topics = topic_model.get_topic_info()
+
+# Check and format the KeyBERT column
+def format_keywords(keywords):
+    if isinstance(keywords, list):
+        return keywords
+    elif isinstance(keywords, str):
+        return keywords.strip('[]').replace("'", "").split(', ')
+    else:
+        return []
+
+df_topics['KeyBERT'] = df_topics['KeyBERT'].apply(format_keywords)
+
+# Extract KeyBERT results into a dictionary
 keybert_results = df_topics[['Topic', 'KeyBERT']].to_dict(orient='records')
 
 # Generate summaries
@@ -22,9 +37,11 @@ for result in keybert_results:
     summary = generate_summary(keywords)
     summaries.append({'Topic': result['Topic'], 'Summary': summary})
 
-# Add summaries to the DataFrame
+# Create a DataFrame with the summaries
 summary_df = pd.DataFrame(summaries)
+
+# Merge the summaries back into the original DataFrame
 df_topics = df_topics.merge(summary_df, on='Topic')
 
-# Display the updated DataFrame
-df_topics[['Topic', 'Summary']]
+# Display the updated DataFrame with summaries
+print(df_topics[['Topic', 'Summary']])
