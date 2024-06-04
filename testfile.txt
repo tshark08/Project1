@@ -1,79 +1,72 @@
-system_prompt = """
-<s>[INST] <<SYS>>
-You are a helpful, respectful and honest assistant for labeling topics.
-<</SYS>>
-"""
+import itertools
+import pandas as pd
+from bertopic import BERTopic
+from umap import UMAP
+from hdbscan import HDBSCAN
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 
-example_prompt = """
-I have a topic that contains the following keywords: 'meat, beef, eat, eating, emissions, steak, food, health, processed, chicken'.
+# Define a list of parameters to try for UMAP
+umap_params = [
+    {'n_neighbors': 15, 'n_components': 2, 'min_dist': 0.1},
+    {'n_neighbors': 30, 'n_components': 2, 'min_dist': 0.1},
+    {'n_neighbors': 50, 'n_components': 2, 'min_dist': 0.5}
+]
 
-Based on the information about the topic above, please create a short label of this topic. Make sure you to only return the label and nothing more.
-[/INST] Environmental impacts of eating meat
-"""
+# Define a list of parameters to try for HDBSCAN
+hdbscan_params = [
+    {'min_cluster_size': 50, 'min_samples': 20},
+    {'min_cluster_size': 100, 'min_samples': 50},
+    {'min_cluster_size': 200, 'min_samples': 100}
+]
 
-main_prompt_template = """
-[INST]
-I have a topic that contains the following keywords: '[KEYWORDS]'.
+# Function to evaluate the model
+def evaluate_model(model, topics, probs, embeddings):
+    # Example metrics
+    silhouette_avg = silhouette_score(embeddings, topics)
+    ch_score = calinski_harabasz_score(embeddings, topics)
+    db_score = davies_bouldin_score(embeddings, topics)
+    return silhouette_avg, ch_score, db_score
 
-Based on the information about the topic above, please create a short label of this topic. Make sure you to only return the label and nothing more.
-[/INST]
-"""
+# Loop over the parameter combinations and fit BERTopic models
+results = []
+for umap_param, hdbscan_param in itertools.product(umap_params, hdbscan_params):
+    # Create UMAP and HDBSCAN models with the current parameter combination
+    umap_model = UMAP(**umap_param)
+    hdbscan_model = HDBSCAN(**hdbscan_param, gen_min_span_tree=True, prediction_data=True)
 
-def generate_summary(topic, keywords):
-    
-
-    main_prompt = main_prompt_template.replace("[KEYWORDS]", ', '.join(keywords))
-    prompt = system_prompt + example_prompt + main_prompt
-    
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": example_prompt},
-            {"role": "user", "content": main_prompt}
-        ],
-        max_tokens=100  # Adjust token count as needed
+    # Fit a BERTopic model with the current parameter combination
+    model = BERTopic(
+        umap_model=umap_model,
+        hdbscan_model=hdbscan_model,
+        top_n_words=10,
+        language='english',
+        calculate_probabilities=True,
+        verbose=True,
+        n_gram_range=(1, 2)
     )
-    
-    
-    return response.choices[0].message.content
-	
-	
-def generate_label(keywords):
-    main_prompt = main_prompt_template.replace("[KEYWORDS]", ', '.join(keywords))
-    prompt = system_prompt + example_prompt + main_prompt
+    topics, probs = model.fit_transform(data)
+    embeddings = model.embedding_model.encode(data, show_progress_bar=True)
 
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": prompt}
-        ],
-        max_tokens=50  # Adjust token count as needed
-    )
-    
-    return response['choices'][0]['message']['content'].strip()
-	
-# Generate summaries for each topic
-summaries = {}
-for _, row in keybert_results.iterrows():
-    topic = row['Topic']
-    keywords = ', '.join(row['KeyBERT'])
-    summary = generate_summary(topic, keywords)
-    summaries[topic] = summary
+    # Evaluate the model
+    silhouette_avg, ch_score, db_score = evaluate_model(model, topics, probs, embeddings)
+    results.append({
+        'umap_param': umap_param,
+        'hdbscan_param': hdbscan_param,
+        'silhouette_score': silhouette_avg,
+        'calinski_harabasz_score': ch_score,
+        'davies_bouldin_score': db_score
+    })
 
-# Display the summaries
-for topic, summary in summaries.items():
-    print(f"Topic {topic}: {summary}")
-	
+    # Visualize the hierarchy and save the figure to an HTML file
+    fig = model.visualize_hierarchy()
+    fig.write_html(f'model_umap_{umap_param}_hdbscan_{hdbscan_param}.html')
 
-# Create a DataFrame from summaries
-summaries_df = pd.DataFrame(list(summaries.items()), columns=['Topic', 'Summary'])
+# Save the results to a CSV file
+results_df = pd.DataFrame(results)
+results_df.to_csv('bertopic_optimization_results.csv', index=False)
 
-# Merge summaries back into the original DataFrame
-topic_info_with_summaries = pd.merge(topic_info, summaries_df, on='Topic', how='left')
-
-# Save the DataFrame with summaries to a CSV file (optional)
-# topic_info_with_summaries.to_csv('/path/to/save/your/topic_info_with_summaries.csv', index=False)  # Uncomment and modify this line as needed
-
-# Display the DataFrame with summaries
-print(topic_info_with_summaries)
+# Find the best parameter combination
+best_result = results_df.loc[results_df['silhouette_score'].idxmax()]
+print("Best UMAP Parameters:", best_result['umap_param'])
+print("Best HDBSCAN Parameters:", best_result['hdbscan_param'])
+print("Best Silhouette Score:", best_result['silhouette_score'])
