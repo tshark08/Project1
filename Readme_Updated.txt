@@ -41,3 +41,31 @@ for text in data['Text']:
 # Save predictions
 data['Predicted Label'] = predictions
 data.to_csv('data_with_predictions.csv', index=False)
+
+import pandas as pd
+from transformers import pipeline
+
+# Sample data
+data = [
+    {"Topic Representation": "Mutiple Tax Fililing and Withholding issues", "Keywords": ['filing', 'irs', 'tax', 'pay', 'wages', 'withholding']},
+    {"Topic Representation": "Payroll and Time Accrual Issues", "Keywords": ['payroll', 'overtime', 'accurals', 'timesheet', 'pto', 'employees']}
+]
+
+# Convert to DataFrame
+df = pd.DataFrame(data)
+
+# Combine the columns
+df['Combined'] = df['Topic Representation'] + " " + df['Keywords'].apply(lambda x: " ".join(x))
+
+# Initialize the zero-shot classifier
+classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+
+# Define candidate labels
+candidate_labels = ["Payroll", "Tax", "System", "Benefits", "Support", "Banking", "Training", "Miscellaneous"]
+
+# Classify each row
+df['Label'] = df['Combined'].apply(lambda x: classifier(x, candidate_labels)['labels'][0])
+
+# Display the DataFrame with the new labels
+print(df[['Topic Representation', 'Keywords', 'Label']])
+
